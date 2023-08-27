@@ -11,4 +11,4 @@ Navigation:
 * Right arrow: next image
 * Left arrow: previous image
 * Up arrow: make favorite
-* Down arrow: remove favorite
+* Down arrow: remove favorite (TODO)

@@ -1,3 +1,5 @@
+mod ui;
+
 use clap::Parser;
 use simple_logger;
 use log::*;
@@ -15,5 +17,5 @@ fn main() {
     simple_logger::init_with_level(args.log_level).unwrap();
     info!("Program arguments processed");
 
-    
+    ui::run(&args);
 }
