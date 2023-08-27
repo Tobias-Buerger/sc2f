@@ -3,6 +3,7 @@ mod ui;
 
 use clap::Parser;
 use log::*;
+use stderrlog;
 
 /// Simple image viewer
 #[derive(Debug, Parser)]
@@ -14,7 +15,11 @@ struct CliArgs {
 
 fn main() {
     let args = CliArgs::parse();
-    simple_logger::init_with_level(args.log_level).unwrap();
+    stderrlog::new()
+        .module(module_path!())
+        .verbosity(args.log_level)
+        .init()
+        .unwrap();
     info!("Program arguments processed");
 
     ui::run(&args);

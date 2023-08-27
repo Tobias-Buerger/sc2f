@@ -1,6 +1,6 @@
 [package]
 name = "sc2f"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 license = "MIT"
 publish = false
@@ -10,7 +10,7 @@ publish = false
 [dependencies]
 clap = {version = "~4.2.7", features = ["derive"]}
 log = {version = "0.4.2", features = ["release_max_level_debug"]}
-simple_logger = "4.2.0"
+stderrlog = "0.5.4"
 egui = "0.22.0"
 eframe = "0.22.0"
 egui_extras = {version = "0.22.0", features = ["image"]}
