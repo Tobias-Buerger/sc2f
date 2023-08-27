@@ -1,7 +1,6 @@
 mod ui;
 
 use clap::Parser;
-use simple_logger;
 use log::*;
 
 /// Simple image viewer

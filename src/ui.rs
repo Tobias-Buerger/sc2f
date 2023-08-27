@@ -1,13 +1,16 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
-use std::{path::{Path, PathBuf}, ffi::OsStr, fs, fmt::format};
+use std::{
+    ffi::OsStr,
+    fs,
+    path::{Path, PathBuf},
+};
 
-use egui::ColorImage;
-use rfd;
 use eframe::egui;
-use egui_extras::RetainedImage;
-use image;
 
+use egui_extras::RetainedImage;
+
+#[derive(Default)]
 struct App {
     source_path: Option<PathBuf>,
     destination_path: Option<PathBuf>,
@@ -18,7 +21,7 @@ struct App {
     image_id: usize,
 }
 
-pub(crate) fn run(args: &crate::CliArgs) {
+pub(crate) fn run(_args: &crate::CliArgs) {
     let options = eframe::NativeOptions::default();
     eframe::run_native("sc2f", options, Box::new(|_cc| Box::<App>::default())).unwrap();
 }
@@ -40,7 +43,6 @@ impl App {
                     ui.monospace(picked_path.display().to_string());
                 });
             }
-
 
             if ui.button("Select destination directory").clicked() {
                 if let Some(path) = rfd::FileDialog::new().pick_folder() {
@@ -71,15 +73,13 @@ impl App {
         let source = self.source_path.as_ref().unwrap();
         for path in source.read_dir().expect("could not read source directory") {
             let path = path.expect("could not read dir entry").path();
-            if path.is_file() {
-                if path.has_extension(&["jpg", "png", "jpeg", "webp", "svg"]) {
-                    self.image_paths.push(path);
-                }
+            if path.is_file() && path.has_extension(&["jpg", "png", "jpeg", "webp", "svg"]) {
+                self.image_paths.push(path);
             }
         }
         self.image_paths.sort();
         self.copied = vec![false; self.image_paths.len()];
-        if self.image_paths.len() == 0 {
+        if self.image_paths.is_empty() {
             return;
         }
         self.load_current_img();
@@ -91,12 +91,22 @@ impl App {
         }
     }
 
-    fn image_viewer(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn image_viewer(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
             if let Some(img) = &self.current_image {
                 ui.horizontal(|ui| {
-                    ui.label(format!("image {}/{}", self.image_id + 1, self.image_paths.len()));
-                    ui.label(self.image_paths[self.image_id].file_name().unwrap().to_str().unwrap());
+                    ui.label(format!(
+                        "image {}/{}",
+                        self.image_id + 1,
+                        self.image_paths.len()
+                    ));
+                    ui.label(
+                        self.image_paths[self.image_id]
+                            .file_name()
+                            .unwrap()
+                            .to_str()
+                            .unwrap(),
+                    );
                     if self.copied[self.image_id] {
                         ui.label("copied");
                     } else {
@@ -108,13 +118,16 @@ impl App {
                 ui.label("Could not load any images!");
             }
 
-            if ctx.input(|i| i.key_pressed(egui::Key::ArrowUp)) {
-                if !self.copied[self.image_id] {
-                    let filename = self.image_paths[self.image_id].file_name().unwrap();
-                    if fs::copy(&self.image_paths[self.image_id], self.destination_path.as_ref().unwrap().join(filename)).is_ok() {
-                        self.copied[self.image_id] = true;
-                        ctx.request_repaint();
-                    }
+            if ctx.input(|i| i.key_pressed(egui::Key::ArrowUp)) && !self.copied[self.image_id] {
+                let filename = self.image_paths[self.image_id].file_name().unwrap();
+                if fs::copy(
+                    &self.image_paths[self.image_id],
+                    self.destination_path.as_ref().unwrap().join(filename),
+                )
+                .is_ok()
+                {
+                    self.copied[self.image_id] = true;
+                    ctx.request_repaint();
                 }
             }
 
@@ -124,12 +137,12 @@ impl App {
                     self.load_current_img();
                     ctx.request_repaint();
                 }
-            } else if ctx.input(|i| i.key_pressed(egui::Key::ArrowRight)) {
-                if self.image_id < self.image_paths.len() - 1 {
-                    self.image_id += 1;
-                    self.load_current_img();
-                    ctx.request_repaint();
-                }
+            } else if ctx.input(|i| i.key_pressed(egui::Key::ArrowRight))
+                && self.image_id < self.image_paths.len() - 1
+            {
+                self.image_id += 1;
+                self.load_current_img();
+                ctx.request_repaint();
             }
         });
     }
@@ -137,24 +150,10 @@ impl App {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        if !self.view_images{
+        if !self.view_images {
             self.view_folder_select(ctx, frame);
         } else {
             self.image_viewer(ctx, frame);
-        }
-    }
-}
-
-impl Default for App {
-    fn default() -> Self {
-        Self {
-            source_path: None,
-            destination_path: None,
-            view_images: false,
-            current_image: None,
-            image_paths: vec![],
-            copied: vec![],
-            image_id: 0,
         }
     }
 }
@@ -173,7 +172,6 @@ fn load_image_from_path<P: AsRef<Path>>(path: P) -> Result<egui::ColorImage, ima
 pub trait FileExtension {
     fn has_extension<S: AsRef<str>>(&self, extensions: &[S]) -> bool;
 }
-
 
 impl<P: AsRef<Path>> FileExtension for P {
     fn has_extension<S: AsRef<str>>(&self, extensions: &[S]) -> bool {
