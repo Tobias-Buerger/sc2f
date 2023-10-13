@@ -6,8 +6,6 @@ use std::{
 
 use eframe::egui;
 
-
-
 use crate::{image_buffer::ImageBuffer, CliArgs};
 
 #[derive(Default)]
@@ -91,7 +89,8 @@ impl App {
             if ui.button("Go").clicked() {
                 if let (Some(src), Some(dst)) = (&state.source_path, &state.destination_path) {
                     self.state = AppState::ImageShow(
-                        create_img_show(&self.args, src.clone(), dst.clone()).expect("could not load image"),
+                        create_img_show(&self.args, src.clone(), dst.clone())
+                            .expect("could not load image"),
                     );
                     ctx.request_repaint();
                 } else {
@@ -202,7 +201,6 @@ fn create_img_show(cli_args: &crate::CliArgs, src: PathBuf, dst: PathBuf) -> Opt
         image_buffer: ImageBuffer::new(0, cli_args.cached_images, len),
     })
 }
-
 
 /// Load future images
 fn load_future_images(current_index: usize, paths: &[PathBuf], buffer: &mut ImageBuffer) {

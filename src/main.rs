@@ -1,10 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
-mod ui;
 mod image_buffer;
+mod ui;
 
 use clap::Parser;
 use log::*;
-
 
 /// Simple image viewer
 #[derive(Debug, Parser)]
