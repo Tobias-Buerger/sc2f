@@ -1,3 +1,5 @@
+use log::*;
+use rexif::{ExifTag, TagValue};
 use std::{path::{PathBuf, Path}, thread::JoinHandle, collections::BTreeMap};
 
 use egui_extras::RetainedImage;
@@ -76,12 +78,73 @@ impl ImageBuffer {
 pub fn load_image_from_path<P: AsRef<Path>>(
     path: P,
 ) -> Result<RetainedImage, image::ImageError> {
+    debug!("loading image {}", path.as_ref().file_name().unwrap().to_str().unwrap());
+    let reader = image::io::Reader::open(path.as_ref())?;
+    trace!("image dimensions: {:?}", reader.into_dimensions().unwrap());
+    let orientation = if let Ok(metadata) = rexif::parse_file(path.as_ref()) {
+        let mut orientation_data = None;
+        for entry in &metadata.entries {
+            if entry.tag == ExifTag::Orientation {
+                orientation_data = match &entry.value {
+                    TagValue::U16(data) => Some(data.clone().into_boxed_slice()),
+                    _ => None,
+                };
+                break;
+            }
+        }
+        orientation_data
+    } else {
+        None
+    };
     let image = image::io::Reader::open(path)?.decode()?;
+    let image = {
+        // https://stackoverflow.com/questions/57771795/how-to-fix-exif-orientation-data-in-jpg-files
+        match orientation.as_deref() {
+            Some(&[1]) => {
+                // Normal
+                image
+            },
+            Some(&[2]) => {
+                // Top, right side (Mirror horizontal)
+                image.fliph()
+            },
+            Some(&[3]) => {
+                // Bottom, right side (Rotate 180)
+                image.rotate180()
+            },
+            Some(&[4]) => {
+                // Bottom, left side (Mirror vertical)
+                image.flipv()
+            },
+            Some(&[5]) => {
+                // Left side, top (Mirror horizontal and rotate 270 CW)
+                image.fliph().rotate270()
+            },
+            Some(&[6]) => {
+                // Right side, top (Rotate 90 CW)
+                image.rotate90()
+            },
+            Some(&[7]) => {
+                // Right side, bottom (Mirror horizontal and rotate 90 CW)
+                image.fliph().rotate90()
+            },
+            Some(&[8]) => {
+                // Left side, bottom (Rotate 270 CW)
+                image.rotate270()
+            },
+            Some(data) => {
+                warn!("unkown exif data {:?}", data);
+                image
+            },
+            None => image,
+        }
+    };
     let size = [image.width() as _, image.height() as _];
     let image_buffer = image.to_rgba8();
     let pixels = image_buffer.as_flat_samples();
-    Ok(RetainedImage::from_color_image("img preview", egui::ColorImage::from_rgba_unmultiplied(
+    let color_image = egui::ColorImage::from_rgba_unmultiplied(
         size,
         pixels.as_slice(),
-    )))
+    );
+    Ok(RetainedImage::from_color_image("img preview", color_image))
 }

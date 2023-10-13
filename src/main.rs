@@ -13,7 +13,7 @@ struct CliArgs {
     #[arg(value_enum, short, long, default_value = "Warn")]
     log_level: Level,
     /// How many images should be cached?
-    #[arg(short, long, default_value_t = 9)]
+    #[arg(short, long, default_value_t = 3)]
     cached_images: usize,
 }
 

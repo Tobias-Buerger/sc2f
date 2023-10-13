@@ -132,7 +132,9 @@ impl App {
                     ui.label("not copied");
                 }
             });
-            img.show_max_size(ui, ui.available_size());
+            ui.vertical_centered(|ui| {
+                img.show_max_size(ui, ui.available_size());
+            });
 
             if ctx.input(|i| i.key_pressed(egui::Key::ArrowUp)) && !state.copied[state.image_id] {
                 let filename = state.image_paths[state.image_id].file_name().unwrap();
