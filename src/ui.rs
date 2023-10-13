@@ -1,14 +1,14 @@
 use std::{
     ffi::OsStr,
     fs,
-    path::{Path, PathBuf}, mem::replace,
+    path::{Path, PathBuf},
 };
 
 use eframe::egui;
 
-use egui_extras::RetainedImage;
 
-use crate::image_buffer::ImageBuffer;
+
+use crate::{image_buffer::ImageBuffer, CliArgs};
 
 #[derive(Default)]
 struct FolderSelect {
@@ -17,9 +17,8 @@ struct FolderSelect {
 }
 
 struct ImageShow {
-    src: PathBuf,
+    _src: PathBuf,
     dst: PathBuf,
-    current_image: RetainedImage,
     image_paths: Box<[PathBuf]>,
     copied: Box<[bool]>,
     image_id: usize,
@@ -31,20 +30,36 @@ enum AppState {
     ImageShow(ImageShow),
 }
 
-#[derive(Default)]
 struct App {
+    args: CliArgs,
     state: AppState,
 }
 
-pub(crate) fn run(_args: &crate::CliArgs) {
+pub(crate) fn run(args: crate::CliArgs) {
     let options = eframe::NativeOptions::default();
-    eframe::run_native("sc2f", options, Box::new(|_cc| Box::<App>::default())).unwrap();
+    eframe::run_native(
+        "sc2f",
+        options,
+        Box::new(|_cc| Box::<App>::new(App::new(args))),
+    )
+    .unwrap();
 }
 
 impl App {
+    fn new(args: crate::CliArgs) -> Self {
+        Self {
+            args,
+            state: AppState::FolderSelect(FolderSelect::default()),
+        }
+    }
+
     fn view_folder_select(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            let state = if let AppState::FolderSelect(state) = &mut self.state { state } else { panic!("method should only be called if in correct state") };
+            let state = if let AppState::FolderSelect(state) = &mut self.state {
+                state
+            } else {
+                panic!("method should only be called if in correct state")
+            };
             ui.label("Select source and destination directory:");
 
             if ui.button("Select source directory").clicked() {
@@ -75,7 +90,9 @@ impl App {
 
             if ui.button("Go").clicked() {
                 if let (Some(src), Some(dst)) = (&state.source_path, &state.destination_path) {
-                    self.state = AppState::ImageShow(create_img_show(src.clone(), dst.clone()).expect("could not load image"));
+                    self.state = AppState::ImageShow(
+                        create_img_show(&self.args, src.clone(), dst.clone()).expect("could not load image"),
+                    );
                     ctx.request_repaint();
                 } else {
                     ui.label("Please select source and destination path first!");
@@ -84,10 +101,18 @@ impl App {
         });
     }
 
+    /// Assume [App] is in State [AppState::ImageShow] else panic
     fn image_viewer(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            let state = if let AppState::ImageShow(state) = &mut self.state { state } else { panic!("method should only be called if in correct state") };
-            let img = &state.current_image;
+            let state = if let AppState::ImageShow(state) = &mut self.state {
+                state
+            } else {
+                panic!("method should only be called if in correct state")
+            };
+            load_future_images(state.image_id, &state.image_paths, &mut state.image_buffer);
+            let img = &state
+                .image_buffer
+                .get_or_load(&state.image_paths[state.image_id], state.image_id);
             ui.horizontal(|ui| {
                 ui.label(format!(
                     "image {}/{}",
@@ -111,12 +136,7 @@ impl App {
 
             if ctx.input(|i| i.key_pressed(egui::Key::ArrowUp)) && !state.copied[state.image_id] {
                 let filename = state.image_paths[state.image_id].file_name().unwrap();
-                if fs::copy(
-                    &state.image_paths[state.image_id],
-                    state.dst.join(filename),
-                )
-                .is_ok()
-                {
+                if fs::copy(&state.image_paths[state.image_id], state.dst.join(filename)).is_ok() {
                     state.copied[state.image_id] = true;
                     ctx.request_repaint();
                 }
@@ -150,25 +170,13 @@ impl eframe::App for App {
 
 fn load_new_image(state: &mut ImageShow, new_id: usize) {
     assert!(new_id < state.image_paths.len());
-    if let Ok(img) = load_image_from_path(&state.image_paths[new_id]) {
-        let new_image = RetainedImage::from_color_image("image preview", img);
-        let old_img = replace(&mut state.current_image, new_image);
-        state.image_id = new_id;
-    }
+    state
+        .image_buffer
+        .load_async(&state.image_paths[new_id], new_id);
+    state.image_id = new_id;
 }
 
-pub fn load_image_from_path<P: AsRef<Path>>(path: P) -> Result<egui::ColorImage, image::ImageError> {
-    let image = image::io::Reader::open(path)?.decode()?;
-    let size = [image.width() as _, image.height() as _];
-    let image_buffer = image.to_rgba8();
-    let pixels = image_buffer.as_flat_samples();
-    Ok(egui::ColorImage::from_rgba_unmultiplied(
-        size,
-        pixels.as_slice(),
-    ))
-}
-
-fn create_img_show(src: PathBuf, dst: PathBuf) -> Option<ImageShow> {
+fn create_img_show(cli_args: &crate::CliArgs, src: PathBuf, dst: PathBuf) -> Option<ImageShow> {
     let mut image_paths = vec![];
     for path in src.read_dir().expect("could not read source directory") {
         let path = path.expect("could not read dir entry").path();
@@ -183,19 +191,30 @@ fn create_img_show(src: PathBuf, dst: PathBuf) -> Option<ImageShow> {
     if image_paths.is_empty() {
         return None;
     }
-    if let Ok(img) = load_image_from_path(&image_paths[0]) {
-        let current_image = RetainedImage::from_color_image("image preview", img);
-        Some(ImageShow {
-            src: src,
-            dst: dst,
-            current_image: current_image,
-            image_paths: image_paths,
-            copied: copied,
-            image_id: 0,
-            image_buffer: ImageBuffer::new(0, 4, len),
-        })
-    } else {
-        None
+    Some(ImageShow {
+        _src: src,
+        dst,
+        image_paths,
+        copied,
+        image_id: 0,
+        image_buffer: ImageBuffer::new(0, cli_args.cached_images, len),
+    })
+}
+
+
+/// Load future images
+fn load_future_images(current_index: usize, paths: &[PathBuf], buffer: &mut ImageBuffer) {
+    // unsure current index is loaded
+    buffer.get_or_load(&paths[current_index], current_index);
+    // load left image
+    if current_index > 0 {
+        let left = current_index - 1;
+        buffer.load_async(&paths[left], left);
+    }
+    // load right image
+    if current_index < paths.len() - 1 {
+        let right = current_index + 1;
+        buffer.load_async(&paths[right], right);
     }
 }
 
@@ -211,11 +230,5 @@ impl<P: AsRef<Path>> FileExtension for P {
                 .any(|x| x.as_ref().eq_ignore_ascii_case(extension));
         }
         false
-    }
-}
-
-impl Default for AppState {
-    fn default() -> Self {
-        Self::FolderSelect(FolderSelect::default())
     }
 }
