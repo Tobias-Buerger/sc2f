@@ -74,8 +74,16 @@ impl ImageBuffer {
         }
     }
 
+    pub fn remove(&mut self, index: usize) {
+        self.image_storage.remove(&index);
+    }
+
     /// Remove images from buffer
     fn update_buffer(&mut self) {
+        if self.image_storage.len() <= self.buffer_size {
+            // no need to delete items
+            return;
+        }
         self.image_storage
             .retain(|k, _| k.abs_diff(self.current_index) <= self.buffer_size / 2);
     }
@@ -86,7 +94,7 @@ pub fn load_image_from_path<P: AsRef<Path>>(path: P) -> Result<RetainedImage, im
         "loading image {}",
         path.as_ref().file_name().unwrap().to_str().unwrap()
     );
-    let reader = image::io::Reader::open(path.as_ref())?;
+    let reader = image::ImageReader::open(path.as_ref())?;
     trace!("image dimensions: {:?}", reader.into_dimensions().unwrap());
     let orientation = if let Ok(metadata) = rexif::parse_file(path.as_ref()) {
         let mut orientation_data = None;
@@ -103,7 +111,7 @@ pub fn load_image_from_path<P: AsRef<Path>>(path: P) -> Result<RetainedImage, im
     } else {
         None
     };
-    let image = image::io::Reader::open(path)?.decode()?;
+    let image = image::ImageReader::open(path)?.decode()?;
     let image = {
         // https://stackoverflow.com/questions/57771795/how-to-fix-exif-orientation-data-in-jpg-files
         match orientation.as_deref() {

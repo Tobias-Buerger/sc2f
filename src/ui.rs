@@ -19,6 +19,8 @@ struct ImageShow {
     dst: PathBuf,
     image_paths: Box<[PathBuf]>,
     copied: Box<[bool]>,
+    deleted: Box<[bool]>,
+    delete_request: bool,
     image_id: usize,
     image_buffer: ImageBuffer,
 }
@@ -108,10 +110,21 @@ impl App {
             } else {
                 panic!("method should only be called if in correct state")
             };
-            load_future_images(state.image_id, &state.image_paths, &mut state.image_buffer);
-            let img = &state
-                .image_buffer
-                .get_or_load(&state.image_paths[state.image_id], state.image_id);
+            load_future_images(
+                state.image_id,
+                &state.image_paths,
+                &state.deleted,
+                &mut state.image_buffer,
+            );
+            let img = if !state.deleted[state.image_id] {
+                Some(
+                    state
+                        .image_buffer
+                        .get_or_load(&state.image_paths[state.image_id], state.image_id),
+                )
+            } else {
+                None
+            };
             ui.horizontal(|ui| {
                 ui.label(format!(
                     "image {}/{}",
@@ -125,17 +138,51 @@ impl App {
                         .to_str()
                         .unwrap(),
                 );
-                if state.copied[state.image_id] {
-                    ui.label("copied");
-                } else {
-                    ui.label("not copied");
+                match (state.copied[state.image_id], state.deleted[state.image_id]) {
+                    (true, true) => ui.label("copied and deleted"),
+                    (true, false) => ui.label("copied and not deleted"),
+                    (false, true) => ui.label("not copied and deleted"),
+                    (false, false) => ui.label("not copied and not deleted"),
+                };
+                if state.delete_request {
+                    ui.label("press <Enter> to confirm delete");
                 }
             });
-            ui.vertical_centered(|ui| {
-                img.show_max_size(ui, ui.available_size());
+            ui.vertical_centered(|ui| match img {
+                Some(img) => img.show_max_size(ui, ui.available_size()),
+                None => ui.label("Image was deleted!"),
             });
 
-            if ctx.input(|i| i.key_pressed(egui::Key::ArrowUp)) && !state.copied[state.image_id] {
+            // check if enter was pressed to confirm delete or something else to cancel
+            let mut key_update = false;
+            if state.delete_request {
+                ctx.input(|i| {
+                    i.events.iter().for_each(|event| {
+                        if let egui::Event::Key { key, pressed, .. } = event {
+                            if *pressed {
+                                key_update = true;
+                                if *key == egui::Key::Enter {
+                                    // delete current file
+                                    if fs::remove_file(&state.image_paths[state.image_id]).is_ok() {
+                                        state.deleted[state.image_id] = true;
+                                        state.image_buffer.remove(state.image_id);
+                                    }
+                                }
+                                // all cases => cancel request
+                                state.delete_request = false;
+                            }
+                        }
+                    })
+                });
+            }
+            if key_update {
+                ctx.request_repaint();
+            }
+
+            if !state.copied[state.image_id]
+                && !state.deleted[state.image_id]
+                && ctx.input(|i| i.key_pressed(egui::Key::ArrowUp))
+            {
                 let filename = state.image_paths[state.image_id].file_name().unwrap();
                 if fs::copy(&state.image_paths[state.image_id], state.dst.join(filename)).is_ok() {
                     state.copied[state.image_id] = true;
@@ -145,15 +192,38 @@ impl App {
 
             if ctx.input(|i| i.key_pressed(egui::Key::ArrowLeft)) {
                 if state.image_id > 0 {
-                    let new_id = state.image_id - 1;
+                    let mut new_id = state.image_id - 1;
+                    loop {
+                        if !state.deleted[new_id] {
+                            break;
+                        }
+                        if new_id == 0 {
+                            break;
+                        }
+                        new_id -= 1;
+                    }
                     load_new_image(state, new_id);
                     ctx.request_repaint();
                 }
             } else if ctx.input(|i| i.key_pressed(egui::Key::ArrowRight))
                 && state.image_id < state.image_paths.len() - 1
             {
-                let new_id = state.image_id + 1;
+                let mut new_id = state.image_id + 1;
+                loop {
+                    if !state.deleted[new_id] {
+                        break;
+                    }
+                    if new_id == state.image_paths.len() - 1 {
+                        break;
+                    }
+                    new_id += 1;
+                }
                 load_new_image(state, new_id);
+                ctx.request_repaint();
+            }
+
+            if !state.deleted[state.image_id] && ctx.input(|i| i.key_pressed(egui::Key::Delete)) {
+                state.delete_request = true;
                 ctx.request_repaint();
             }
         });
@@ -189,6 +259,7 @@ fn create_img_show(cli_args: &crate::CliArgs, src: PathBuf, dst: PathBuf) -> Opt
     let image_paths = image_paths.into_boxed_slice();
     let len = image_paths.len();
     let copied = vec![false; len].into_boxed_slice();
+    let deleted = vec![false; len].into_boxed_slice();
     if image_paths.is_empty() {
         return None;
     }
@@ -197,24 +268,38 @@ fn create_img_show(cli_args: &crate::CliArgs, src: PathBuf, dst: PathBuf) -> Opt
         dst,
         image_paths,
         copied,
+        deleted,
+        delete_request: false,
         image_id: 0,
         image_buffer: ImageBuffer::new(0, cli_args.cached_images, len),
     })
 }
 
 /// Load future images
-fn load_future_images(current_index: usize, paths: &[PathBuf], buffer: &mut ImageBuffer) {
+fn load_future_images(
+    current_index: usize,
+    paths: &[PathBuf],
+    deleted: &[bool],
+    buffer: &mut ImageBuffer,
+) {
+    assert!(paths.len() == deleted.len() && current_index < paths.len());
     // unsure current index is loaded
-    buffer.get_or_load(&paths[current_index], current_index);
+    if !deleted[current_index] {
+        buffer.get_or_load(&paths[current_index], current_index);
+    }
     // load left image
     if current_index > 0 {
         let left = current_index - 1;
-        buffer.load_async(&paths[left], left);
+        if !deleted[left] {
+            buffer.load_async(&paths[left], left);
+        }
     }
     // load right image
     if current_index < paths.len() - 1 {
         let right = current_index + 1;
-        buffer.load_async(&paths[right], right);
+        if !deleted[right] {
+            buffer.load_async(&paths[right], right);
+        }
     }
 }
 
