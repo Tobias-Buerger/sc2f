@@ -12,3 +12,4 @@ Navigation:
 * Left arrow: previous image
 * Up arrow: make favorite
 * Down arrow: remove favorite (TODO)
+* Del: delete image from source dir
